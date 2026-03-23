@@ -38,6 +38,21 @@ def _build_input(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         role = str(message.get("role", "")).strip()
         if role == "system":
             continue
+        if role == "tool_call":
+            payload.append({
+                "type": "function_call",
+                "name": message.get("name", ""),
+                "call_id": message.get("call_id", ""),
+                "arguments": message.get("arguments", ""),
+            })
+            continue
+        if role == "tool_result":
+            payload.append({
+                "type": "function_call_output",
+                "call_id": message.get("call_id", ""),
+                "output": str(message.get("output", "")),
+            })
+            continue
         content = str(message.get("content", ""))
         payload.append(
             {
@@ -98,6 +113,7 @@ class CodexHttpGateway:
         model: str,
         reasoning_effort: str,
         messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
     ) -> Iterator[dict[str, Any]]:
         headers = {
             "Authorization": f"Bearer {session.access_token}",
@@ -118,6 +134,8 @@ class CodexHttpGateway:
         }
         if reasoning_effort:
             body["reasoning"] = {"effort": reasoning_effort}
+        if tools:
+            body["tools"] = tools
 
         req = request.Request(
             f"{self._base_url}/responses",
@@ -134,6 +152,9 @@ class CodexHttpGateway:
         except error.URLError as exc:
             raise BrokerError(502, str(exc.reason)) from exc
 
+        # Track function call metadata across SSE events
+        _fc_meta: dict[str, dict[str, str]] = {}  # item_id → {"call_id", "name"}
+
         with response:
             for envelope in _iter_sse_events(response):
                 data = envelope.get("data", "")
@@ -146,12 +167,54 @@ class CodexHttpGateway:
                     continue
 
                 event_type = payload.get("type")
+
                 if event_type == "response.output_text.delta" and isinstance(payload.get("delta"), str):
                     yield {
                         "requestId": request_id,
                         "provider": "codex",
                         "kind": "delta",
                         "delta": payload["delta"],
+                    }
+                    continue
+
+                if event_type == "response.output_item.added":
+                    item = _to_json_record(payload.get("item")) or {}
+                    if item.get("type") == "function_call":
+                        item_id = str(item.get("id", ""))
+                        call_id = str(item.get("call_id") or item.get("id", ""))
+                        name = str(item.get("name", ""))
+                        _fc_meta[item_id] = {"call_id": call_id, "name": name}
+                        yield {
+                            "requestId": request_id,
+                            "provider": "codex",
+                            "kind": "tool_call_start",
+                            "callId": call_id,
+                            "name": name,
+                        }
+                    continue
+
+                if event_type == "response.function_call_arguments.delta":
+                    item_id = str(payload.get("item_id", ""))
+                    meta = _fc_meta.get(item_id, {})
+                    yield {
+                        "requestId": request_id,
+                        "provider": "codex",
+                        "kind": "tool_call_delta",
+                        "callId": meta.get("call_id", item_id),
+                        "delta": payload.get("delta", ""),
+                    }
+                    continue
+
+                if event_type == "response.function_call_arguments.done":
+                    item_id = str(payload.get("item_id", ""))
+                    meta = _fc_meta.get(item_id, {})
+                    yield {
+                        "requestId": request_id,
+                        "provider": "codex",
+                        "kind": "tool_call_done",
+                        "callId": meta.get("call_id", item_id),
+                        "name": meta.get("name", ""),
+                        "arguments": payload.get("arguments", ""),
                     }
                     continue
 

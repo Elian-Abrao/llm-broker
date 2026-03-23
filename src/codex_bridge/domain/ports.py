@@ -54,6 +54,7 @@ class CodexGatewayPort(Protocol):
         model: str,
         reasoning_effort: str,
         messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
     ) -> Iterator[dict[str, Any]]: ...
 
 

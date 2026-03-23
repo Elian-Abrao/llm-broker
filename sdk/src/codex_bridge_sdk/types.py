@@ -3,12 +3,16 @@ from __future__ import annotations
 from typing import Any, Literal, TypedDict
 
 BridgeReasoningEffort = Literal["none", "low", "medium", "high", "xhigh"]
-ChatRole = Literal["system", "user", "assistant"]
+ChatRole = Literal["system", "user", "assistant", "tool_call", "tool_result"]
 
 
-class ChatMessage(TypedDict):
+class ChatMessage(TypedDict, total=False):
     role: ChatRole
     content: str
+    name: str
+    call_id: str
+    arguments: str
+    output: str
 
 
 class StartLoginResult(TypedDict):
@@ -66,6 +70,13 @@ class BridgeCodexCapabilitiesResponse(TypedDict, total=False):
     reasoningEfforts: list[BridgeOption]
 
 
+class ToolDefinition(TypedDict, total=False):
+    type: str
+    name: str
+    description: str
+    parameters: dict[str, Any]
+
+
 class BridgeChatRequest(TypedDict, total=False):
     model: str
     messages: list[ChatMessage]
@@ -73,6 +84,7 @@ class BridgeChatRequest(TypedDict, total=False):
     temperature: float
     metadata: dict[str, str]
     executionMode: str
+    tools: list[ToolDefinition]
 
 
 class BridgeChatResponse(TypedDict):
@@ -109,7 +121,40 @@ class StreamErrorEvent(TypedDict):
     message: str
 
 
-StreamEvent = StreamStatusEvent | StreamDeltaEvent | StreamDoneEvent | StreamErrorEvent
+class StreamToolCallStartEvent(TypedDict):
+    requestId: str
+    provider: Literal["codex"]
+    kind: Literal["tool_call_start"]
+    callId: str
+    name: str
+
+
+class StreamToolCallDeltaEvent(TypedDict):
+    requestId: str
+    provider: Literal["codex"]
+    kind: Literal["tool_call_delta"]
+    callId: str
+    delta: str
+
+
+class StreamToolCallDoneEvent(TypedDict):
+    requestId: str
+    provider: Literal["codex"]
+    kind: Literal["tool_call_done"]
+    callId: str
+    name: str
+    arguments: str
+
+
+StreamEvent = (
+    StreamStatusEvent
+    | StreamDeltaEvent
+    | StreamDoneEvent
+    | StreamErrorEvent
+    | StreamToolCallStartEvent
+    | StreamToolCallDeltaEvent
+    | StreamToolCallDoneEvent
+)
 
 
 BridgePermissionProfile = Literal["read-only", "workspace-write", "full-access"]

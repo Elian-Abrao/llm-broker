@@ -57,6 +57,9 @@ class ChatService:
             "message": "Connecting to codex...",
         }
 
+        raw_tools = request_payload.get("tools")
+        tools = raw_tools if isinstance(raw_tools, list) else None
+
         session = self._auth_service.get_valid_session()
         yield from self._codex_gateway.stream_chat(
             request_id=request_id,
@@ -64,6 +67,7 @@ class ChatService:
             model=model,
             reasoning_effort=reasoning_effort,
             messages=messages,
+            tools=tools,
         )
 
     def chat(self, request_payload: dict[str, Any]) -> dict[str, Any]:
