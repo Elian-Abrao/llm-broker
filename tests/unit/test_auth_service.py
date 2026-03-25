@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from codex_bridge.app.auth_service import AuthService
-from codex_bridge.domain.auth import AuthSession, CallbackPayload, OAuthLoginTicket
+from codex.app.auth_service import AuthService
+from codex.domain.auth import AuthSession, CallbackPayload, OAuthLoginTicket
 
 
 class FakeSessionStore:

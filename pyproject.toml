@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "codex-bridge"
+name = "llm-broker"
 version = "1.0.0"
-description = "Local Python broker for Codex authentication and chat access."
+description = "Local Python broker for LLM authentication and chat access (Codex, Gemini, etc.)."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -30,7 +30,7 @@ secure = ["keyring>=25,<26"]
 publish = ["build>=1.2,<2", "twine>=5,<6"]
 
 [project.scripts]
-codex-bridge = "codex_bridge.interfaces.cli:main"
+llm-broker = "codex.interfaces.cli:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from codex_bridge.infra.auth.callback_server import _build_html_response
+from codex.infra.auth.callback_server import _build_html_response
 
 
 class CallbackServerHtmlTests(unittest.TestCase):

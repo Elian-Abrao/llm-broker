@@ -26,7 +26,7 @@ class CliE2ETests(unittest.TestCase):
         env["CODEX_BRIDGE_DISABLE_KEYRING"] = "1"
         env["CODEX_BRIDGE_AUTH_STORE_PATH"] = str(Path(temp_dir.name) / "auth" / "session.json")
         return subprocess.run(
-            [sys.executable, "-m", "codex_bridge", *args],
+            [sys.executable, "-m", "codex", *args],
             cwd=str(cwd or REPO_ROOT),
             env=env,
             text=True,

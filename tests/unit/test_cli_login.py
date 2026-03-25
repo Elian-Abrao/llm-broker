@@ -5,8 +5,8 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from codex_bridge.domain.auth import OAuthLoginTicket
-from codex_bridge.interfaces import cli
+from codex.domain.auth import OAuthLoginTicket
+from codex.interfaces import cli
 
 
 class _FakeState:
@@ -62,9 +62,9 @@ class LoginCliTests(unittest.TestCase):
         output = io.StringIO()
 
         with (
-            patch("codex_bridge.interfaces.cli.create_runtime", return_value=_FakeRuntime()),
-            patch("codex_bridge.interfaces.cli.webbrowser.open", return_value=True),
-            patch("codex_bridge.interfaces.cli.sys.stdin.isatty", return_value=True),
+            patch("codex.interfaces.cli.create_runtime", return_value=_FakeRuntime()),
+            patch("codex.interfaces.cli.webbrowser.open", return_value=True),
+            patch("codex.interfaces.cli.sys.stdin.isatty", return_value=True),
             patch("builtins.input", side_effect=AssertionError("input should not be required for automatic callback")),
             redirect_stdout(output),
         ):

@@ -9,9 +9,9 @@ from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from codex_bridge.bootstrap.config import BRIDGE_API_PREFIX, load_config
-from codex_bridge.bootstrap.runtime import create_runtime
-from codex_bridge.interfaces.http.server import create_handler
+from codex.bootstrap.config import BRIDGE_API_PREFIX, load_config
+from codex.bootstrap.runtime import create_runtime
+from codex.interfaces.http.server import create_handler
 
 
 class FakeAgentChatService:
@@ -99,7 +99,7 @@ class BrokerApiTests(unittest.TestCase):
             {"messages": [{"role": "user", "content": "Oi"}]},
         )
         self.assertEqual(status, 401)
-        self.assertIn("No authenticated Codex session", payload["error"])
+        self.assertIn("No authenticated session", payload["error"])
 
     def test_agent_session_routes_cover_pending_action_and_approval(self) -> None:
         self.runtime.agent_service._chat_service = FakeAgentChatService()

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from os import getenv
 from pathlib import Path
 
@@ -11,6 +11,7 @@ BRIDGE_API_PREFIX = "/v1"
 DEFAULT_BIND_HOST = "127.0.0.1"
 DEFAULT_BIND_PORT = 47831
 DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
+DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com"
 DEFAULT_USER_AGENT = "codex-bridge/python"
 KEYRING_SERVICE_NAME = "codex-bridge"
 KEYRING_USERNAME = "default"
@@ -21,6 +22,11 @@ ACCESS_TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000
 LOGIN_TIMEOUT_MS = 5 * 60 * 1000
 MIN_REFRESH_DELAY_MS = 15_000
 FALLBACK_EXPIRY_MS = 55 * 60 * 1000
+GEMINI_CALLBACK_PORT = 9004
+# Gemini CLI OAuth credentials (public installed-app credentials from the Gemini CLI open-source project).
+# Set via env vars. The values can be found in the Gemini CLI public repository.
+GEMINI_CLIENT_ID = getenv("GEMINI_CLIENT_ID", "")
+GEMINI_CLIENT_SECRET = getenv("GEMINI_CLIENT_SECRET", "")
 
 DEFAULT_CODEX_MODELS = [
     {
@@ -46,12 +52,18 @@ def default_auth_store_path() -> Path:
     return Path.home() / ".codex-bridge" / "auth" / "codex-session.json"
 
 
+def default_gemini_auth_store_path() -> Path:
+    return Path.home() / ".codex-bridge" / "auth" / "gemini-session.json"
+
+
 @dataclass(frozen=True)
 class BrokerConfig:
     bind_host: str = DEFAULT_BIND_HOST
     bind_port: int = DEFAULT_BIND_PORT
-    auth_store_path: Path = default_auth_store_path()
+    auth_store_path: Path = field(default_factory=default_auth_store_path)
     codex_base_url: str = DEFAULT_CODEX_BASE_URL
+    gemini_base_url: str = DEFAULT_GEMINI_BASE_URL
+    gemini_auth_store_path: Path = field(default_factory=default_gemini_auth_store_path)
     user_agent: str = DEFAULT_USER_AGENT
     prefer_keyring: bool = True
     login_timeout_ms: int = LOGIN_TIMEOUT_MS
@@ -83,6 +95,8 @@ def load_config(
         bind_port=parsed_port,
         auth_store_path=store_path,
         codex_base_url=(codex_base_url or getenv("CODEX_BASE_URL", "")).strip() or DEFAULT_CODEX_BASE_URL,
+        gemini_base_url=getenv("GEMINI_BASE_URL", "").strip() or DEFAULT_GEMINI_BASE_URL,
+        gemini_auth_store_path=default_gemini_auth_store_path(),
         user_agent=(user_agent or getenv("CODEX_BRIDGE_USER_AGENT", "")).strip() or DEFAULT_USER_AGENT,
         prefer_keyring=(
             prefer_keyring

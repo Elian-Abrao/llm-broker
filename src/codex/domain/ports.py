@@ -45,17 +45,23 @@ class OAuthGatewayPort(Protocol):
     def refresh_session(self, *, session: AuthSession, now_ms: int) -> AuthSession: ...
 
 
-class CodexGatewayPort(Protocol):
+class LLMGatewayPort(Protocol):
+    """Provider-agnostic LLM gateway. Every provider must implement this."""
+
     def stream_chat(
         self,
         *,
         request_id: str,
         session: AuthSession,
         model: str,
-        reasoning_effort: str,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
+        provider_params: dict[str, Any] | None = None,
     ) -> Iterator[dict[str, Any]]: ...
+
+
+# Backward-compat alias
+CodexGatewayPort = LLMGatewayPort
 
 
 class AgentToolPort(Protocol):

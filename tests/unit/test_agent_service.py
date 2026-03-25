@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from codex_bridge.app.agent_service import AgentService
-from codex_bridge.infra.tools import ReadFileTool, ShellTool, WriteFileTool
+from codex.app.agent_service import AgentService
+from codex.infra.tools import ReadFileTool, ShellTool, WriteFileTool
 
 
 class FakeChatService:

@@ -4,11 +4,11 @@ import json
 from typing import Any, Iterator
 from urllib import error, request
 
-from ...bootstrap.config import (
+from ....bootstrap.config import (
     CODEX_ORIGINATOR,
 )
-from ...domain.auth import AuthSession
-from ...domain.errors import BrokerError
+from ....domain.auth import AuthSession
+from ....domain.errors import BrokerError
 from .default_instructions import CODEX_DEFAULT_INSTRUCTIONS
 
 
@@ -111,10 +111,11 @@ class CodexHttpGateway:
         request_id: str,
         session: AuthSession,
         model: str,
-        reasoning_effort: str,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
+        provider_params: dict[str, Any] | None = None,
     ) -> Iterator[dict[str, Any]]:
+        reasoning_effort = (provider_params or {}).get("reasoningEffort", "medium") if provider_params else "medium"
         headers = {
             "Authorization": f"Bearer {session.access_token}",
             "Content-Type": "application/json",

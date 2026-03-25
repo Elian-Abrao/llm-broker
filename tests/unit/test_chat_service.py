@@ -3,8 +3,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 import unittest
 
-from codex_bridge.app.chat_service import ChatService
-from codex_bridge.domain.auth import AuthSession
+from codex.app.chat_service import ChatService
+from codex.app.provider_registry import ProviderEntry, ProviderRegistry
+from codex.domain.auth import AuthSession
 
 
 class FakeAuthService:
@@ -25,20 +26,37 @@ class FakeAuthService:
         return self.session
 
 
-class FakeCodexGateway:
+class FakeGateway:
     def __init__(self) -> None:
-        self.last_messages = None
+        self.last_kwargs: dict | None = None
 
-    def stream_chat(self, *, request_id, session, model, reasoning_effort, messages):
-        self.last_messages = messages
+    def stream_chat(self, *, request_id, session, model, messages, tools=None, provider_params=None):
+        self.last_kwargs = {
+            "request_id": request_id,
+            "messages": messages,
+            "model": model,
+            "provider_params": provider_params,
+        }
         yield {"requestId": request_id, "provider": "codex", "kind": "delta", "delta": "OK"}
         yield {"requestId": request_id, "provider": "codex", "kind": "done"}
 
 
+def _make_service(gateway: FakeGateway) -> tuple[ChatService, FakeGateway]:
+    registry = ProviderRegistry()
+    entry = ProviderEntry(
+        provider_id="codex",
+        auth_service=FakeAuthService(),
+        gateway=gateway,
+        capabilities={"defaultModel": "gpt-5"},
+    )
+    registry.register(entry, default=True)
+    return ChatService(registry=registry), gateway
+
+
 class ChatServiceTests(unittest.TestCase):
-    def test_plain_chat_injects_non_agent_system_message(self) -> None:
-        gateway = FakeCodexGateway()
-        service = ChatService(auth_service=FakeAuthService(), codex_gateway=gateway)
+    def test_chat_returns_output_text(self) -> None:
+        gateway = FakeGateway()
+        service, _ = _make_service(gateway)
 
         response = service.chat(
             {
@@ -47,24 +65,35 @@ class ChatServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(response["outputText"], "OK")
-        assert gateway.last_messages is not None
-        self.assertEqual(gateway.last_messages[0]["role"], "system")
-        self.assertIn("plain chat mode", gateway.last_messages[0]["content"])
+        self.assertEqual(response["provider"], "codex")
 
-    def test_agent_mode_does_not_inject_plain_chat_guard(self) -> None:
-        gateway = FakeCodexGateway()
-        service = ChatService(auth_service=FakeAuthService(), codex_gateway=gateway)
+    def test_chat_forwards_provider_params(self) -> None:
+        gateway = FakeGateway()
+        service, gw = _make_service(gateway)
 
         service.chat(
             {
-                "executionMode": "agent",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "providerParams": {"reasoningEffort": "high"},
+            }
+        )
+
+        assert gw.last_kwargs is not None
+        self.assertEqual(gw.last_kwargs["provider_params"], {"reasoningEffort": "high"})
+
+    def test_messages_passed_through_unmodified(self) -> None:
+        gateway = FakeGateway()
+        service, gw = _make_service(gateway)
+
+        service.chat(
+            {
                 "messages": [{"role": "user", "content": "Use a tool if needed"}],
             }
         )
 
-        assert gateway.last_messages is not None
-        self.assertEqual(len(gateway.last_messages), 1)
-        self.assertEqual(gateway.last_messages[0]["role"], "user")
+        assert gw.last_kwargs is not None
+        self.assertEqual(len(gw.last_kwargs["messages"]), 1)
+        self.assertEqual(gw.last_kwargs["messages"][0]["role"], "user")
 
 
 if __name__ == "__main__":

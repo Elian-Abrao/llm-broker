@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from http import HTTPStatus
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 from ...bootstrap.config import BRIDGE_API_PREFIX, BRIDGE_SERVICE_NAME
 from ...bootstrap.runtime import BrokerRuntime
@@ -57,32 +57,48 @@ def handle_json_request(runtime: BrokerRuntime, method: str, path: str, body: by
         )
 
     if method == "GET" and _is_route(path, "/auth/state"):
+        query = parse_qs(urlparse(path).query)
+        provider_param = query.get("provider", [None])[0]
+        if provider_param:
+            entry = runtime.registry.get(provider_param)
+            return _json_response(HTTPStatus.OK, entry.auth_service.get_state().to_dict())
         return _json_response(HTTPStatus.OK, runtime.auth_service.get_state().to_dict())
 
+    if method == "GET" and _is_route(path, "/providers"):
+        return _json_response(HTTPStatus.OK, runtime.chat_service.get_all_capabilities())
+
     if method == "GET" and _is_route(path, "/providers/codex/options"):
-        return _json_response(HTTPStatus.OK, runtime.chat_service.get_capabilities())
+        return _json_response(HTTPStatus.OK, runtime.chat_service.get_capabilities("codex"))
 
     if method == "POST" and _is_route(path, "/auth/login"):
-        login = runtime.auth_service.start_login()
-        payload = {
+        payload = parse_json_body(body)
+        provider_id = str(payload.get("provider") or "codex").strip()
+        entry = runtime.registry.get(provider_id)
+        login = entry.auth_service.start_login()
+        resp_payload = {
             **login.to_dict(include_started_at=False),
             "instructions": [
                 "Open authUrl in your browser.",
                 "If the automatic callback fails, send the final redirect URL to POST /v1/auth/complete.",
             ],
         }
-        return _json_response(HTTPStatus.OK, payload)
+        return _json_response(HTTPStatus.OK, resp_payload)
 
     if method == "POST" and _is_route(path, "/auth/complete"):
         payload = parse_json_body(body)
         redirect_url = payload.get("redirectUrl")
         if not isinstance(redirect_url, str) or not redirect_url.strip():
             raise BrokerError(400, "`redirectUrl` is required.")
-        runtime.auth_service.complete_manual_login(redirect_url)
-        return _json_response(HTTPStatus.OK, runtime.auth_service.get_state().to_dict())
+        provider_id = str(payload.get("provider") or "codex").strip()
+        entry = runtime.registry.get(provider_id)
+        entry.auth_service.complete_manual_login(redirect_url)
+        return _json_response(HTTPStatus.OK, entry.auth_service.get_state().to_dict())
 
     if method == "POST" and _is_route(path, "/auth/logout"):
-        runtime.auth_service.logout()
+        payload = parse_json_body(body)
+        provider_id = str(payload.get("provider") or "codex").strip()
+        entry = runtime.registry.get(provider_id)
+        entry.auth_service.logout()
         return _json_response(HTTPStatus.OK, {"ok": True})
 
     if method == "POST" and _is_route(path, "/chat"):
@@ -94,6 +110,12 @@ def handle_json_request(runtime: BrokerRuntime, method: str, path: str, body: by
         raise BrokerError(500, "Streaming route must be handled separately.")
 
     parts = _split_api_path(path)
+
+    # GET /v1/providers/{provider_id}/options
+    if len(parts) == 3 and parts[0] == "providers" and parts[2] == "options" and method == "GET":
+        provider_id = parts[1]
+        return _json_response(HTTPStatus.OK, runtime.chat_service.get_capabilities(provider_id))
+
     if parts[:2] == ["agent", "tools"] and method == "GET":
         return _json_response(HTTPStatus.OK, {"tools": runtime.agent_service.list_tools()})
 

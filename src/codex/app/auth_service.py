@@ -144,20 +144,20 @@ class AuthService:
         with self._lock:
             session = self._session
         if not session:
-            raise BrokerError(401, "No authenticated Codex session is available.")
+            raise BrokerError(401, "No authenticated session is available. Please log in first.")
         if session.expires_at <= self._now():
             self.refresh_session()
             with self._lock:
                 session = self._session
         if not session:
-            raise BrokerError(401, "No authenticated Codex session is available.")
+            raise BrokerError(401, "No authenticated session is available. Please log in first.")
         return session
 
     def refresh_session(self) -> None:
         with self._lock:
             session = self._session
         if not session:
-            raise BrokerError(401, "No authenticated Codex session is available.")
+            raise BrokerError(401, "No authenticated session is available. Please log in first.")
 
         with self._refresh_lock:
             with self._lock:
