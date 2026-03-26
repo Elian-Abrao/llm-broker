@@ -16,13 +16,13 @@ from ....domain.auth import AuthSession, OAuthLoginTicket
 from ....domain.errors import BrokerError
 from ....infra.auth.pkce import generate_oauth_state, generate_pkce_pair, to_form_urlencoded
 from ....infra.auth.jwt_claims import extract_jwt_expiry_ms
-GEMINI_AUTH_BASE = "https://accounts.google.com/o/oauth2/v2/auth"
+GEMINI_AUTH_BASE = "https://accounts.google.com/o/oauth2/auth"
 GEMINI_TOKEN_URL = "https://oauth2.googleapis.com/token"
+# Exact scopes used by the Gemini CLI (google-gemini/gemini-cli)
 GEMINI_SCOPES = (
-    "openid",
-    "email",
-    "profile",
     "https://www.googleapis.com/auth/cloud-platform",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
 )
 GEMINI_REDIRECT_HOST = "127.0.0.1"
 GEMINI_REDIRECT_PORT = 9004
