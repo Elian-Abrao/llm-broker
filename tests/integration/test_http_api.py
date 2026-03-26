@@ -9,9 +9,9 @@ from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from codex.bootstrap.config import BRIDGE_API_PREFIX, load_config
-from codex.bootstrap.runtime import create_runtime
-from codex.interfaces.http.server import create_handler
+from llm_broker.bootstrap.config import BRIDGE_API_PREFIX, load_config
+from llm_broker.bootstrap.runtime import create_runtime
+from llm_broker.interfaces.http.server import create_handler
 
 
 class FakeAgentChatService:

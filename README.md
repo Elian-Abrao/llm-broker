@@ -1,269 +1,233 @@
-# codex-bridge
+# llm-broker
 
-Local Python broker for Codex authentication and chat access.
+A local HTTP broker that centralizes authentication and chat access for multiple LLM providers.
 
 ## What It Is
 
-`codex-bridge` is a local broker that centralizes:
+`llm-broker` is a lightweight local Python service that sits between your application and LLM providers. It handles:
 
-- OAuth PKCE login against the Codex-compatible auth flow
-- local session persistence and automatic token refresh
-- Codex model and reasoning metadata
-- synchronous and streaming chat endpoints
-- a terminal-first CLI
-- an initial local agent runtime with sessions, permissions, and tools
+- OAuth PKCE login flows and local session persistence
+- Automatic token refresh
+- Unified chat and streaming endpoints across providers
+- A terminal-first CLI for login, chat, and agent workflows
+- A local agent runtime with sessions, permission profiles, and tool execution
 
-Applications integrate with the broker over HTTP instead of reimplementing OAuth, callback handling, refresh, and Codex-specific request details.
+Applications integrate over HTTP instead of re-implementing OAuth, callback handling, token refresh, and provider-specific request formats.
 
-## Repository Layout
+**Currently supported providers:**
 
-```text
-src/codex_bridge/
-  app/                application services and use cases
-  bootstrap/          configuration and runtime composition
-  domain/             entities, agent policies, and ports
-  infra/              HTTP/OAuth/storage/tool adapters
-  interfaces/         CLI and HTTP entrypoints
-tests/
-  unit/               pure broker unit tests
-  integration/        HTTP API and runtime integration tests
-  e2e/                CLI-level smoke tests
-sdk/                  separate Python SDK package and examples
-docs/                 architecture, ADRs, and publishing guides
+| Provider | Backend | Auth |
+|---|---|---|
+| `codex` | OpenAI Codex via `chatgpt.com/backend-api/codex` | OAuth2 PKCE (OpenAI) |
+| `gemini_cli` | Google Gemini via `generativelanguage.googleapis.com` | OAuth2 PKCE (Google) |
+
+## Architecture
+
+The package follows a strict 5-layer architecture:
+
+```
+Domain          entities, ports (interfaces), errors, policies
+App             application services (AuthService, ChatService, AgentService)
+Infra           HTTP gateways, OAuth adapters, storage, tools
+Interfaces      CLI (argparse) and HTTP server (stdlib)
+Bootstrap       config loading and runtime composition
 ```
 
-## Install
+Provider implementations live under `infra/providers/`:
 
-Install the broker locally:
+```
+src/llm_broker/infra/providers/
+  codex/
+    http_gateway.py       LLMGatewayPort — streaming SSE via ChatGPT backend
+  gemini_cli/
+    http_gateway.py       LLMGatewayPort — streamGenerateContent via Gemini API
+    auth_gateway.py       OAuthGatewayPort — Google OAuth2 PKCE
+```
+
+## Project Structure
+
+```
+src/llm_broker/
+  app/                    application services and use cases
+  bootstrap/              config and runtime wiring
+  domain/                 entities, ports, agent policies
+  infra/
+    auth/                 PKCE helpers, JWT claims, callback server
+    providers/
+      codex/              Codex (ChatGPT) LLM gateway
+      gemini_cli/         Gemini CLI LLM and OAuth gateways
+    storage/              session persistence (file + keyring)
+    tools/                filesystem and shell tools
+  interfaces/
+    cli.py                argparse CLI entrypoint
+    http/                 stdlib HTTP server and route handlers
+tests/
+  unit/                   pure unit tests (no I/O)
+  integration/            HTTP API and runtime wiring tests
+  e2e/                    CLI smoke tests
+sdk/                      standalone Python SDK package
+docs/                     architecture, ADRs, publishing guide
+```
+
+## Setup
 
 ```bash
 pip install -e .
 ```
 
-Install with secure OS keyring support:
+With OS keyring support (recommended for token storage):
 
 ```bash
 pip install -e '.[secure]'
 ```
 
+Start the broker:
+
+```bash
+python -m llm_broker
+# or via the installed script:
+llm-broker serve
+```
+
+## Configuration
+
+| Environment Variable | Default | Description |
+|---|---|---|
+| `CODEX_BRIDGE_PORT` | `47831` | Port the broker listens on |
+| `CODEX_BRIDGE_HOST` | `127.0.0.1` | Host the broker binds to |
+| `GEMINI_CLIENT_ID` | _(required for Gemini)_ | Google OAuth2 client ID — find it in the [Gemini CLI public repo](https://github.com/google-gemini/gemini-cli) |
+| `GEMINI_CLIENT_SECRET` | _(required for Gemini)_ | Google OAuth2 client secret — same source |
+| `CODEX_BRIDGE_DISABLE_KEYRING` | unset | Set to `1` to disable OS keyring and fall back to plain file storage |
+
+## API Endpoints
+
+All endpoints are prefixed with `/v1`.
+
+### Health and Discovery
+
+```
+GET  /v1/health                          → {"ok": true, "service": "codex-bridge"}
+GET  /v1/providers                       → list all registered providers with capabilities
+GET  /v1/providers/{provider}/options    → provider capabilities, models, and auth state
+```
+
+### Authentication
+
+```
+GET  /v1/auth/state                      → current auth state (optionally ?provider=...)
+POST /v1/auth/login                      → start OAuth login flow
+     body: {"provider": "codex" | "gemini_cli"}
+     response: {"authUrl": "...", "manualFallback": true, ...}
+
+POST /v1/auth/logout
+     body: {"provider": "codex" | "gemini_cli"}
+
+POST /v1/auth/complete                   → manual fallback: paste the redirect URL
+     body: {"provider": "...", "redirectUrl": "http://localhost:...?code=...&state=..."}
+```
+
+### Chat
+
+```
+POST /v1/chat
+     body: {
+       "provider": "codex" | "gemini_cli",
+       "model": "gpt-5.4" | "gemini-2.5-pro" | ...,
+       "messages": [{"role": "user", "content": "..."}],
+       "providerParams": {...}
+     }
+     response: {"outputText": "...", "provider": "...", ...}
+
+POST /v1/chat/stream                     → same body, responds with SSE stream
+```
+
+### Agent Sessions
+
+```
+GET  /v1/agent/tools
+POST /v1/agent/sessions
+     body: {"permissionProfile": "read-only"|"workspace-write"|"full-access",
+            "approvalPolicy": "manual"|"auto-edit"|"auto",
+            "model": "...", "cwd": "..."}
+
+GET  /v1/agent/sessions/{session_id}
+POST /v1/agent/sessions/{session_id}/turns
+     body: {"prompt": "..."}
+POST /v1/agent/sessions/{session_id}/reset
+POST /v1/agent/sessions/{session_id}/permissions
+     body: {"permissionProfile": "..."}
+POST /v1/agent/sessions/{session_id}/approval-policy
+     body: {"approvalPolicy": "..."}
+POST /v1/agent/sessions/{session_id}/actions/{action_id}/approve
+POST /v1/agent/sessions/{session_id}/actions/{action_id}/reject
+     body: {"reason": "..."}
+```
+
+## Streaming Event Format
+
+`POST /v1/chat/stream` returns a Server-Sent Events (SSE) stream. Each event has `kind` as the SSE event type and a JSON data payload:
+
+```
+event: status
+data: {"kind": "status", "message": "Connecting..."}
+
+event: delta
+data: {"kind": "delta", "delta": "Hello"}
+
+event: tool_call_start
+data: {"kind": "tool_call_start", "call_id": "...", "name": "..."}
+
+event: tool_call_delta
+data: {"kind": "tool_call_delta", "call_id": "...", "arguments_delta": "..."}
+
+event: tool_call_done
+data: {"kind": "tool_call_done", "call_id": "...", "name": "...", "arguments": "..."}
+
+event: done
+data: {"kind": "done", "requestId": "..."}
+
+event: error
+data: {"kind": "error", "message": "..."}
+```
+
+## Adding a New Provider
+
+1. Create `src/llm_broker/infra/providers/{name}/` with an `__init__.py`.
+2. Implement `LLMGatewayPort` (from `domain/ports.py`) in `http_gateway.py` — the key method is `stream_chat(*, request_id, session, model, messages, tools, provider_params)`.
+3. If the provider needs its own auth, implement `OAuthGatewayPort` and `AuthService`; otherwise reuse an existing one.
+4. Register the provider in `src/llm_broker/bootstrap/runtime.py` by creating a `ProviderEntry` and calling `registry.register(entry)`.
+
 ## CLI
 
-Start the login flow:
-
 ```bash
-codex-bridge login
+llm-broker login [--provider codex|gemini_cli]
+llm-broker serve
+llm-broker status
+llm-broker models
+llm-broker whoami
+llm-broker doctor
+llm-broker chat "Your prompt here"
+llm-broker chat --stream "Your prompt"
+llm-broker chat --interactive
+llm-broker agent
+llm-broker version
 ```
 
-When the local browser callback succeeds, the CLI completes the login automatically. You do not need to press Enter in the terminal.
-
-Start the local broker:
-
-```bash
-codex-bridge serve
-```
-
-Inspect current state:
-
-```bash
-codex-bridge status
-codex-bridge models
-codex-bridge whoami
-codex-bridge doctor
-codex-bridge version
-```
-
-Send a quick chat request:
-
-```bash
-codex-bridge chat "Explain this repository."
-```
-
-`chat` is plain chat mode. It should not pretend to execute local commands or inspect your workspace.
-
-Start an interactive terminal session:
-
-```bash
-codex-bridge chat --interactive
-```
-
-Interactive mode supports these slash commands:
-
-- `/help`
-- `/reset`
-- `/model <name>`
-- `/reasoning <level>`
-- `/status`
-- `/logout`
-- `/exit`
-
-Use `/logout` to clear the local session and leave the interactive chat immediately.
-
-Start the local agent runtime:
-
-```bash
-codex-bridge agent
-```
-
-The initial agent mode supports:
-
-- session state
-- permission profiles: `read-only`, `workspace-write`, `full-access`
-- approval policies: `manual`, `auto-edit`, `auto`
-- local tools: `read_file`, `write_file`, `shell`
-- model-driven local tool rounds inside the same agent turn
-
-Core agent commands:
-
-- `/status`
-- `/permissions [profile]`
-- `/approvals [policy]`
-- `/tools`
-- `/cwd [path]`
-- `/read <path>`
-- `/write <path> <content>`
-- `/shell <command>`
-
-In `agent` mode, Codex can now request a local tool during the turn. The runtime executes the tool, injects the tool output back into the session context, and continues the same turn automatically.
-
-Machine-readable output is available for structured commands:
-
-```bash
-codex-bridge --json status
-codex-bridge --json doctor
-codex-bridge --json models
-codex-bridge --json whoami
-```
-
-## HTTP API
-
-The public API is versioned under `/v1`.
-
-- `GET /v1/health`
-- `GET /v1/auth/state`
-- `POST /v1/auth/login`
-- `POST /v1/auth/complete`
-- `POST /v1/auth/logout`
-- `GET /v1/providers/codex/options`
-- `POST /v1/chat`
-- `POST /v1/chat/stream`
-- `GET /v1/agent/tools`
-- `POST /v1/agent/sessions`
-- `GET /v1/agent/sessions/{session_id}`
-- `POST /v1/agent/sessions/{session_id}/turns`
-- `POST /v1/agent/sessions/{session_id}/reset`
-- `POST /v1/agent/sessions/{session_id}/permissions`
-- `POST /v1/agent/sessions/{session_id}/approval-policy`
-- `POST /v1/agent/sessions/{session_id}/actions/{action_id}/approve`
-- `POST /v1/agent/sessions/{session_id}/actions/{action_id}/reject`
-
-Example:
-
-```bash
-curl -X POST http://127.0.0.1:47831/v1/chat \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "model": "gpt-5.4",
-    "reasoningEffort": "medium",
-    "messages": [
-      { "role": "user", "content": "Reply with a short sentence." }
-    ]
-  }'
-```
+Use `--json` for machine-readable output on most commands.
 
 ## Development
 
-Run the broker test suite:
+Run tests:
 
 ```bash
-PYTHONPATH=src python -m unittest discover -s tests -p 'test_*.py'
-PYTHONPATH=sdk/src python -m unittest discover -s sdk/tests -p 'test_*.py'
+pytest tests/unit/ -q
+pytest tests/integration/ -q
 ```
 
-The broker test suite is now organized by scope:
-
-- `tests/unit`: application services and storage adapters
-- `tests/integration`: HTTP API and runtime wiring
-- `tests/e2e`: CLI execution against the package entrypoint
-
-Run the broker directly from source:
+Run from source without installing:
 
 ```bash
-PYTHONPATH=src python -m codex_bridge serve
-```
-
-## How To Test It Locally
-
-1. Create a virtual environment and install the broker:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-pip install -e ./sdk
-```
-
-2. Run the automated tests:
-
-```bash
-PYTHONPATH=src python -m unittest discover -s tests -p 'test_*.py'
-PYTHONPATH=sdk/src python -m unittest discover -s sdk/tests -p 'test_*.py'
-```
-
-3. Start the broker:
-
-```bash
-codex-bridge serve
-```
-
-4. In another terminal, verify the broker:
-
-```bash
-curl http://127.0.0.1:47831/v1/health
-curl http://127.0.0.1:47831/v1/auth/state
-curl http://127.0.0.1:47831/v1/providers/codex/options
-```
-
-5. Authenticate if needed:
-
-```bash
-codex-bridge login
-```
-
-If the browser reaches the success page, the login should finish automatically in the terminal without extra input.
-
-6. Send a real prompt:
-
-```bash
-codex-bridge chat "Reply with OK only."
-codex-bridge chat --stream "Reply with OK only."
-codex-bridge chat --interactive
-codex-bridge agent
-```
-
-Inside `chat --interactive`, you can use `/logout` to clear the local session and exit the terminal chat.
-
-Or through HTTP:
-
-```bash
-curl -X POST http://127.0.0.1:47831/v1/chat \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "model": "gpt-5.4",
-    "reasoningEffort": "medium",
-    "messages": [
-      { "role": "user", "content": "Reply with OK only." }
-    ]
-  }'
-```
-
-## SDK
-
-The repository also contains a separate Python SDK package in [`sdk/`](./sdk/README.md).
-
-Published package target:
-
-```bash
-pip install codex-bridge-sdk
+PYTHONPATH=src python -m llm_broker serve
 ```
 
 ## Documentation

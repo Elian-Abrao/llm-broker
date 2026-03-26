@@ -30,7 +30,7 @@ secure = ["keyring>=25,<26"]
 publish = ["build>=1.2,<2", "twine>=5,<6"]
 
 [project.scripts]
-llm-broker = "codex.interfaces.cli:main"
+llm-broker = "llm_broker.interfaces.cli:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

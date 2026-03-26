@@ -5,8 +5,8 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from codex.domain.auth import OAuthLoginTicket
-from codex.interfaces import cli
+from llm_broker.domain.auth import OAuthLoginTicket
+from llm_broker.interfaces import cli
 
 
 class _FakeState:
@@ -62,9 +62,9 @@ class LoginCliTests(unittest.TestCase):
         output = io.StringIO()
 
         with (
-            patch("codex.interfaces.cli.create_runtime", return_value=_FakeRuntime()),
-            patch("codex.interfaces.cli.webbrowser.open", return_value=True),
-            patch("codex.interfaces.cli.sys.stdin.isatty", return_value=True),
+            patch("llm_broker.interfaces.cli.create_runtime", return_value=_FakeRuntime()),
+            patch("llm_broker.interfaces.cli.webbrowser.open", return_value=True),
+            patch("llm_broker.interfaces.cli.sys.stdin.isatty", return_value=True),
             patch("builtins.input", side_effect=AssertionError("input should not be required for automatic callback")),
             redirect_stdout(output),
         ):

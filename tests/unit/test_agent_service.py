@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from codex.app.agent_service import AgentService
-from codex.infra.tools import ReadFileTool, ShellTool, WriteFileTool
+from llm_broker.app.agent_service import AgentService
+from llm_broker.infra.tools import ReadFileTool, ShellTool, WriteFileTool
 
 
 class FakeChatService:

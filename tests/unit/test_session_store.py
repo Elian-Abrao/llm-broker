@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from codex.domain.auth import AuthSession
-from codex.infra.storage.session_store import FileSystemSessionStore
+from llm_broker.domain.auth import AuthSession
+from llm_broker.infra.storage.session_store import FileSystemSessionStore
 
 
 class FakeKeyring:

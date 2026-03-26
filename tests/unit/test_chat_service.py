@@ -3,9 +3,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 import unittest
 
-from codex.app.chat_service import ChatService
-from codex.app.provider_registry import ProviderEntry, ProviderRegistry
-from codex.domain.auth import AuthSession
+from llm_broker.app.chat_service import ChatService
+from llm_broker.app.provider_registry import ProviderEntry, ProviderRegistry
+from llm_broker.domain.auth import AuthSession
 
 
 class FakeAuthService:
