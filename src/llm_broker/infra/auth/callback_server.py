@@ -186,12 +186,12 @@ def _build_html_response(title: str, message: str) -> str:
           <path d="M6.5 12.5l3.25 3.25L17.5 8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
         </svg>
       </div>
-      <div class="eyebrow">Signed in with ChatGPT</div>
+      <div class="eyebrow">Authentication complete</div>
       <h1>{safe_title}</h1>
       <p>{safe_message}</p>
       <div class="meta">
         <strong>What happens next?</strong><br />
-        Codex-Bridge already received the authorization callback. If you started the login from the terminal, it should continue automatically without pressing Enter.
+        The authorization callback was received successfully. If you started the login from the terminal, it should continue automatically without pressing Enter.
       </div>
       <div class="actions">
         <button type="button" onclick="window.close()">Close window</button>

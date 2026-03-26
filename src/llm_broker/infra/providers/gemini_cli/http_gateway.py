@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Iterator
 from urllib import error, request
 
@@ -9,7 +10,8 @@ from ....domain.errors import BrokerError
 
 
 DEFAULT_GEMINI_MODEL = "gemini-2.5-pro"
-DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com"
+DEFAULT_GEMINI_BASE_URL = "https://cloudcode-pa.googleapis.com"
+DEFAULT_GEMINI_API_VERSION = "v1internal"
 
 GEMINI_MODELS = [
     {"id": "gemini-2.5-pro", "label": "Gemini 2.5 Pro", "description": "Most capable Gemini model.", "recommended": True},
@@ -112,42 +114,102 @@ def _build_gemini_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]] | N
     return [{"functionDeclarations": declarations}]
 
 
-def _iter_gemini_chunks(response) -> Iterator[dict[str, Any]]:
-    """Parse Gemini streamGenerateContent response (JSON array stream)."""
-    buffer = b""
-    for chunk in response:
-        buffer += chunk
-    raw = buffer.decode("utf-8").strip()
-    if raw.startswith("["):
-        inner = raw[1:]
-        if inner.endswith("]"):
-            inner = inner[:-1]
-        decoder = json.JSONDecoder()
-        pos = 0
-        while pos < len(inner):
-            inner_stripped = inner[pos:].lstrip(" \t\r\n,")
-            if not inner_stripped:
-                break
-            try:
-                obj, idx = decoder.raw_decode(inner_stripped)
-                pos += (len(inner) - len(inner_stripped)) + idx
-                yield obj
-            except json.JSONDecodeError:
-                break
-    else:
-        for line in raw.splitlines():
-            line = line.strip().lstrip(",")
-            if not line:
-                continue
-            try:
-                yield json.loads(line)
-            except json.JSONDecodeError:
-                continue
+def _iter_sse_chunks(response) -> Iterator[dict[str, Any]]:
+    """Parse Code Assist SSE responses composed of `data: ...` frames."""
+    buffered_lines: list[str] = []
+    for raw_line in response:
+        line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+        if line.startswith("data: "):
+            buffered_lines.append(line[6:].strip())
+            continue
+        if line:
+            continue
+        if not buffered_lines:
+            continue
+        payload = "\n".join(buffered_lines)
+        buffered_lines.clear()
+        try:
+            yield json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+
+    if buffered_lines:
+        try:
+            yield json.loads("\n".join(buffered_lines))
+        except json.JSONDecodeError:
+            return
+
+
+def _build_generation_config(provider_params: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not provider_params:
+        return None
+    generation_config: dict[str, Any] = {}
+    if "maxOutputTokens" in provider_params:
+        generation_config["maxOutputTokens"] = provider_params["maxOutputTokens"]
+    if "temperature" in provider_params:
+        generation_config["temperature"] = provider_params["temperature"]
+    return generation_config or None
+
+
+def _resolve_project_id(provider_params: dict[str, Any] | None) -> str | None:
+    project_id = None
+    if provider_params:
+        raw_project = provider_params.get("project")
+        if isinstance(raw_project, str) and raw_project.strip():
+            project_id = raw_project.strip()
+    if project_id:
+        return project_id
+    return os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT_ID") or None
+
+
+def _build_code_assist_request(
+    *,
+    request_id: str,
+    model: str,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None,
+    provider_params: dict[str, Any] | None,
+) -> dict[str, Any]:
+    system_text = _collect_system_messages(messages)
+    contents = _build_gemini_contents(messages)
+    req: dict[str, Any] = {
+        "contents": contents,
+    }
+    if system_text:
+        req["systemInstruction"] = {"role": "user", "parts": [{"text": system_text}]}
+    gemini_tools = _build_gemini_tools(tools) if tools else None
+    if gemini_tools:
+        req["tools"] = gemini_tools
+    generation_config = _build_generation_config(provider_params)
+    if generation_config:
+        req["generationConfig"] = generation_config
+    session_id = provider_params.get("sessionId") if provider_params else None
+    if isinstance(session_id, str) and session_id.strip():
+        req["session_id"] = session_id.strip()
+
+    body: dict[str, Any] = {
+        "model": model,
+        "user_prompt_id": request_id,
+        "request": req,
+        # "G1" activates the Google One AI Premium credit consumed by the Gemini CLI plan
+        "enabled_credit_types": ["G1"],
+    }
+    project_id = _resolve_project_id(provider_params)
+    if project_id:
+        body["project"] = project_id
+    return body
 
 
 class GeminiCliHttpGateway:
-    def __init__(self, *, base_url: str = DEFAULT_GEMINI_BASE_URL, user_agent: str = "llm-broker/python") -> None:
+    def __init__(
+        self,
+        *,
+        base_url: str = DEFAULT_GEMINI_BASE_URL,
+        api_version: str = DEFAULT_GEMINI_API_VERSION,
+        user_agent: str = "llm-broker/python",
+    ) -> None:
         self._base_url = base_url.rstrip("/")
+        self._api_version = api_version.strip("/") or DEFAULT_GEMINI_API_VERSION
         self._user_agent = user_agent
 
     def stream_chat(
@@ -161,32 +223,18 @@ class GeminiCliHttpGateway:
         provider_params: dict[str, Any] | None = None,
     ) -> Iterator[dict[str, Any]]:
         model = model or DEFAULT_GEMINI_MODEL
-
-        system_text = _collect_system_messages(messages)
-        contents = _build_gemini_contents(messages)
-
-        body: dict[str, Any] = {"contents": contents}
-        if system_text:
-            body["systemInstruction"] = {"parts": [{"text": system_text}]}
-
-        gemini_tools = _build_gemini_tools(tools) if tools else None
-        if gemini_tools:
-            body["tools"] = gemini_tools
-
-        if provider_params:
-            gen_config = {}
-            if "maxOutputTokens" in provider_params:
-                gen_config["maxOutputTokens"] = provider_params["maxOutputTokens"]
-            if "temperature" in provider_params:
-                gen_config["temperature"] = provider_params["temperature"]
-            if gen_config:
-                body["generationConfig"] = gen_config
-
-        url = f"{self._base_url}/v1beta/models/{model}:streamGenerateContent"
+        body = _build_code_assist_request(
+            request_id=request_id,
+            model=model,
+            messages=messages,
+            tools=tools,
+            provider_params=provider_params,
+        )
+        url = f"{self._base_url}/{self._api_version}:streamGenerateContent?alt=sse"
         headers = {
             "Authorization": f"Bearer {session.access_token}",
             "Content-Type": "application/json",
-            "Accept": "application/json",
+            "Accept": "text/event-stream",
             "User-Agent": self._user_agent,
         }
 
@@ -201,13 +249,21 @@ class GeminiCliHttpGateway:
             response = request.urlopen(req, timeout=120)
         except error.HTTPError as exc:
             raw_body = exc.read().decode("utf-8", errors="replace")
+            if exc.code == 403 and "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in raw_body:
+                raise BrokerError(
+                    502,
+                    "Gemini Code Assist rejected the token because it lacks the required scopes. "
+                    "Run login again for the Gemini provider to mint a fresh token with the Code Assist scopes.",
+                    raw_body,
+                ) from exc
             raise BrokerError(502, f"Gemini request failed ({exc.code}): {raw_body}", raw_body) from exc
         except error.URLError as exc:
             raise BrokerError(502, str(exc.reason)) from exc
 
         with response:
-            for chunk in _iter_gemini_chunks(response):
-                candidates = chunk.get("candidates")
+            for chunk in _iter_sse_chunks(response):
+                payload = chunk.get("response") or {}
+                candidates = payload.get("candidates")
                 if not isinstance(candidates, list) or not candidates:
                     continue
 

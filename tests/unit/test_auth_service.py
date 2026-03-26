@@ -116,7 +116,7 @@ class AuthServiceTests(unittest.TestCase):
         self.assertTrue(callback_factory.server.started)
         self.assertIsNotNone(callback_factory.last_kwargs)
         assert callback_factory.last_kwargs is not None
-        self.assertEqual(callback_factory.last_kwargs["success_title"], "Codex-Bridge connected")
+        self.assertEqual(callback_factory.last_kwargs["success_title"], "Authentication complete")
         self.assertIn("continue automatically", str(callback_factory.last_kwargs["success_message"]))
 
         auth_service.finish_login_from_callback(ticket.id, CallbackPayload(code="code-123", state=ticket.state))
