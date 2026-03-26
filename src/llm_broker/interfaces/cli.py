@@ -177,7 +177,7 @@ def _stream_chat_to_stdout(runtime, payload: dict[str, object]) -> dict[str, obj
     return {
         "requestId": request_id or "",
         "provider": "codex",
-        "model": str(payload.get("model") or DEFAULT_CODEX_MODEL),
+        "model": str(payload.get("model") or ""),
         "outputText": "".join(output_parts),
     }
 
@@ -490,7 +490,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     chat_parser = subparsers.add_parser("chat", help="Send a one-shot chat request through the broker runtime.")
     chat_parser.add_argument("prompt", nargs="*")
-    chat_parser.add_argument("--model", default=DEFAULT_CODEX_MODEL)
+    chat_parser.add_argument("--model", default="")
     chat_parser.add_argument("--reasoning", default="medium")
     chat_parser.add_argument("--interactive", action="store_true", help="Start a persistent terminal chat session.")
     chat_parser.add_argument("--stream", action="store_true", help="Stream the response directly to stdout.")
@@ -498,7 +498,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     agent_parser = subparsers.add_parser("agent", help="Start an interactive local agent session.")
     agent_parser.add_argument("prompt", nargs="*")
-    agent_parser.add_argument("--model", default=DEFAULT_CODEX_MODEL)
+    agent_parser.add_argument("--model", default="")
     agent_parser.add_argument("--reasoning", default="medium")
     agent_parser.add_argument("--permissions", default="read-only")
     agent_parser.add_argument("--approval-policy", default="manual")

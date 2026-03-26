@@ -77,6 +77,7 @@ class GeminiCliHttpGatewayTests(unittest.TestCase):
         self.assertEqual(body["model"], "gemini-2.5-pro")
         self.assertEqual(body["project"], "demo-project")
         self.assertEqual(body["user_prompt_id"], "req-1")
+        self.assertNotIn("enabled_credit_types", body)
         self.assertEqual(body["request"]["contents"], [{"role": "user", "parts": [{"text": "hi"}]}])
         self.assertEqual(body["request"]["generationConfig"]["temperature"], 0.2)
         self.assertEqual(body["request"]["generationConfig"]["maxOutputTokens"], 256)
@@ -123,6 +124,38 @@ class GeminiCliHttpGatewayTests(unittest.TestCase):
                 )
 
         self.assertIn("Run login again", str(ctx.exception))
+
+    def test_stream_chat_normalizes_legacy_g1_credit_type(self) -> None:
+        captured: dict[str, object] = {}
+
+        def _fake_urlopen(req, timeout=120):  # type: ignore[no-untyped-def]
+            captured["body"] = json.loads(req.data.decode("utf-8"))
+            return _FakeResponse([b"\n"])
+
+        gateway = GeminiCliHttpGateway(base_url="https://cloudcode-pa.googleapis.com")
+        session = AuthSession(
+            provider="gemini_cli",
+            access_token="token-123",
+            refresh_token="refresh-123",
+            expires_at=10_000,
+            updated_at=5_000,
+        )
+
+        with patch("llm_broker.infra.providers.gemini_cli.http_gateway.request.urlopen", side_effect=_fake_urlopen):
+            events = list(
+                gateway.stream_chat(
+                    request_id="req-1",
+                    session=session,
+                    model="gemini-2.5-pro",
+                    messages=[{"role": "user", "content": "hi"}],
+                    provider_params={"enabledCreditTypes": ["G1"]},
+                )
+            )
+
+        body = captured["body"]
+        assert isinstance(body, dict)
+        self.assertEqual(body["enabled_credit_types"], ["GOOGLE_ONE_AI"])
+        self.assertEqual(events[-1]["kind"], "done")
 
 
 if __name__ == "__main__":
