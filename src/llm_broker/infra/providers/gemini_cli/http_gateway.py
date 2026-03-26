@@ -191,8 +191,8 @@ def _build_code_assist_request(
         "model": model,
         "user_prompt_id": request_id,
         "request": req,
-        # "G1" activates the Google One AI Premium credit consumed by the Gemini CLI plan
-        "enabled_credit_types": ["G1"],
+        # GOOGLE_ONE_AI = Google One AI Premium credit consumed by the Gemini CLI subscription
+        "enabled_credit_types": ["GOOGLE_ONE_AI"],
     }
     project_id = _resolve_project_id(provider_params)
     if project_id:
