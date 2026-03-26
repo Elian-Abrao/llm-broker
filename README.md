@@ -19,7 +19,7 @@ Applications integrate over HTTP instead of re-implementing OAuth, callback hand
 | Provider | Backend | Auth |
 |---|---|---|
 | `codex` | OpenAI Codex via `chatgpt.com/backend-api/codex` | OAuth2 PKCE (OpenAI) |
-| `gemini_cli` | Google Gemini via `generativelanguage.googleapis.com` | OAuth2 PKCE (Google) |
+| `gemini_cli` | Gemini Code Assist via `cloudcode-pa.googleapis.com/v1internal` | OAuth2 PKCE (Google) |
 
 ## Architecture
 
@@ -40,7 +40,7 @@ src/llm_broker/infra/providers/
   codex/
     http_gateway.py       LLMGatewayPort — streaming SSE via ChatGPT backend
   gemini_cli/
-    http_gateway.py       LLMGatewayPort — streamGenerateContent via Gemini API
+    http_gateway.py       LLMGatewayPort — Code Assist `loadCodeAssist` + content generation
     auth_gateway.py       OAuthGatewayPort — Google OAuth2 PKCE
 ```
 
@@ -132,7 +132,7 @@ POST /v1/auth/complete                   → manual fallback: paste the redirect
 POST /v1/chat
      body: {
        "provider": "codex" | "gemini_cli",
-       "model": "gpt-5.4" | "gemini-2.5-pro" | ...,
+       "model": "gpt-5.4" | "gemini-2.5-flash" | ...,
        "messages": [{"role": "user", "content": "..."}],
        "providerParams": {...}
      }
@@ -204,9 +204,11 @@ llm-broker login [--provider codex|gemini_cli]
 llm-broker serve
 llm-broker status
 llm-broker models
+llm-broker models --provider gemini_cli
 llm-broker whoami
 llm-broker doctor
 llm-broker chat "Your prompt here"
+llm-broker chat --provider gemini_cli "Seu prompt"
 llm-broker chat --stream "Your prompt"
 llm-broker chat --interactive
 llm-broker agent
@@ -214,6 +216,11 @@ llm-broker version
 ```
 
 Use `--json` for machine-readable output on most commands.
+
+Notes:
+
+- `llm-broker models --provider gemini_cli` shows the Gemini-specific defaults and available models.
+- The current Gemini default is `gemini-2.5-flash`, which is a safer default for individual Code Assist accounts than `gemini-2.5-pro`.
 
 ## Development
 

@@ -486,7 +486,8 @@ def build_parser() -> argparse.ArgumentParser:
     whoami_parser.add_argument("--provider", default="codex", help="Provider to query (default: codex).")
     subparsers.add_parser("doctor", help="Print a local diagnostics report.")
     subparsers.add_parser("version", help="Print the installed broker version.")
-    subparsers.add_parser("models", help="List advertised models and reasoning levels.")
+    models_parser = subparsers.add_parser("models", help="List advertised models and reasoning levels.")
+    models_parser.add_argument("--provider", default=None, help="Provider to inspect: codex or gemini_cli (default: registry default).")
 
     chat_parser = subparsers.add_parser("chat", help="Send a one-shot chat request through the broker runtime.")
     chat_parser.add_argument("prompt", nargs="*")
@@ -658,9 +659,9 @@ def _run_version(*, as_json: bool) -> None:
         print(f"{payload['service']} {payload['version']}")
 
 
-def _run_models(*, as_json: bool) -> None:
+def _run_models(*, as_json: bool, provider: str | None = None) -> None:
     runtime = create_runtime()
-    capabilities = runtime.chat_service.get_capabilities()
+    capabilities = runtime.chat_service.get_capabilities(provider)
     if as_json:
         _print_json(capabilities)
     else:
@@ -787,7 +788,7 @@ def main() -> None:
             return
 
         if args.command == "models":
-            _run_models(as_json=args.json)
+            _run_models(as_json=args.json, provider=args.provider)
             return
 
         if args.command == "chat":
