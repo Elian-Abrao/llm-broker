@@ -474,9 +474,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     login_parser = subparsers.add_parser("login", help="Start the OAuth login flow.")
     login_parser.add_argument("--no-browser", action="store_true", help="Do not try to open the browser automatically.")
-    subparsers.add_parser("logout", help="Clear the local Codex session.")
-    subparsers.add_parser("status", help="Print broker auth state.")
-    subparsers.add_parser("whoami", help="Print the currently authenticated account, if any.")
+    login_parser.add_argument("--provider", default="codex", help="Provider to authenticate: codex, gemini_cli (default: codex).")
+
+    logout_parser = subparsers.add_parser("logout", help="Clear the local session.")
+    logout_parser.add_argument("--provider", default="codex", help="Provider to log out from (default: codex).")
+
+    status_parser = subparsers.add_parser("status", help="Print broker auth state.")
+    status_parser.add_argument("--provider", default="codex", help="Provider to check (default: codex).")
+
+    whoami_parser = subparsers.add_parser("whoami", help="Print the currently authenticated account, if any.")
+    whoami_parser.add_argument("--provider", default="codex", help="Provider to query (default: codex).")
     subparsers.add_parser("doctor", help="Print a local diagnostics report.")
     subparsers.add_parser("version", help="Print the installed broker version.")
     subparsers.add_parser("models", help="List advertised models and reasoning levels.")
@@ -487,6 +494,7 @@ def build_parser() -> argparse.ArgumentParser:
     chat_parser.add_argument("--reasoning", default="medium")
     chat_parser.add_argument("--interactive", action="store_true", help="Start a persistent terminal chat session.")
     chat_parser.add_argument("--stream", action="store_true", help="Stream the response directly to stdout.")
+    chat_parser.add_argument("--provider", default=None, help="Provider to use: codex, gemini_cli (default: registry default).")
 
     agent_parser = subparsers.add_parser("agent", help="Start an interactive local agent session.")
     agent_parser.add_argument("prompt", nargs="*")
@@ -512,7 +520,7 @@ def _collect_manual_callback_input(result_queue: "queue.SimpleQueue[str]", stop_
         result_queue.put(value)
 
 
-def _wait_for_login_completion(runtime, *, expires_at: int, allow_manual_prompt: bool) -> dict[str, object]:
+def _wait_for_login_completion(auth_service, *, expires_at: int, allow_manual_prompt: bool) -> dict[str, object]:
     manual_input_queue: "queue.SimpleQueue[str]" = queue.SimpleQueue()
     stop_event = threading.Event()
     manual_input_thread: threading.Thread | None = None
@@ -533,9 +541,9 @@ def _wait_for_login_completion(runtime, *, expires_at: int, allow_manual_prompt:
                 except queue.Empty:
                     break
                 if redirect_url:
-                    runtime.auth_service.complete_manual_login(redirect_url)
+                    auth_service.complete_manual_login(redirect_url)
 
-            state = runtime.auth_service.get_state().to_dict()
+            state = auth_service.get_state().to_dict()
             if state.get("session") or not state.get("activeLogin"):
                 return state
             time.sleep(0.25)
@@ -544,27 +552,30 @@ def _wait_for_login_completion(runtime, *, expires_at: int, allow_manual_prompt:
         if manual_input_thread and manual_input_thread.is_alive():
             manual_input_thread.join(timeout=0.1)
 
-    return runtime.auth_service.get_state().to_dict()
+    return auth_service.get_state().to_dict()
 
 
-def _run_login(*, as_json: bool, open_browser: bool) -> None:
+def _run_login(*, as_json: bool, open_browser: bool, provider: str = "codex") -> None:
     runtime = create_runtime()
-    current = runtime.auth_service.get_state().to_dict()
+    entry = runtime.registry.get(provider)
+    auth_service = entry.auth_service
+
+    current = auth_service.get_state().to_dict()
     if current.get("session"):
         if as_json:
             _print_json(current)
         else:
-            print("A Codex session is already active.")
+            print(f"A {provider} session is already active.")
             _print_auth_summary(current)
         return
 
-    login = runtime.auth_service.start_login()
+    login = auth_service.start_login()
     auth_url = login.auth_url
     redirect_uri = login.redirect_uri
     expires_at = login.expires_at
 
     opened = False if not open_browser else webbrowser.open(auth_url)
-    print("No active Codex session found.")
+    print(f"No active {provider} session found.")
     if open_browser:
         print("Browser opened automatically." if opened else "Open this URL in your browser:")
     else:
@@ -573,7 +584,7 @@ def _run_login(*, as_json: bool, open_browser: bool) -> None:
     print(f"Expected redirect: {redirect_uri}")
     print("Waiting for the browser callback. If the local callback succeeds, the terminal will continue automatically.")
 
-    final_state = _wait_for_login_completion(runtime, expires_at=expires_at, allow_manual_prompt=not as_json)
+    final_state = _wait_for_login_completion(auth_service, expires_at=expires_at, allow_manual_prompt=not as_json)
     if not final_state.get("session"):
         raise BrokerError(408, "Login was not completed within the timeout.")
     if as_json:
@@ -583,31 +594,34 @@ def _run_login(*, as_json: bool, open_browser: bool) -> None:
         _print_auth_summary(final_state)
 
 
-def _run_logout(*, as_json: bool) -> None:
+def _run_logout(*, as_json: bool, provider: str = "codex") -> None:
     runtime = create_runtime()
-    runtime.auth_service.logout()
+    entry = runtime.registry.get(provider)
+    entry.auth_service.logout()
     if as_json:
-        _print_json({"ok": True, "message": "Session cleared."})
+        _print_json({"ok": True, "provider": provider, "message": "Session cleared."})
     else:
-        print("Session cleared.")
+        print(f"{provider}: session cleared.")
 
 
-def _run_status(*, as_json: bool) -> None:
+def _run_status(*, as_json: bool, provider: str = "codex") -> None:
     runtime = create_runtime()
-    state = runtime.auth_service.get_state().to_dict()
+    entry = runtime.registry.get(provider)
+    state = entry.auth_service.get_state().to_dict()
     if as_json:
         _print_json(state)
     else:
         _print_auth_summary(state)
 
 
-def _run_whoami(*, as_json: bool) -> None:
+def _run_whoami(*, as_json: bool, provider: str = "codex") -> None:
     runtime = create_runtime()
-    state = runtime.auth_service.get_state().to_dict()
+    entry = runtime.registry.get(provider)
+    state = entry.auth_service.get_state().to_dict()
     session = state.get("session")
     payload = {
         "authenticated": isinstance(session, dict),
-        "provider": "codex",
+        "provider": provider,
         "email": session.get("email") if isinstance(session, dict) else None,
         "planType": session.get("planType") if isinstance(session, dict) else None,
         "accountId": session.get("accountId") if isinstance(session, dict) else None,
@@ -615,11 +629,13 @@ def _run_whoami(*, as_json: bool) -> None:
     if as_json:
         _print_json(payload)
     elif payload["authenticated"]:
-        print(f"Logged in as {payload['email'] or 'unknown'}")
-        print(f"Plan: {payload['planType'] or 'unknown'}")
-        print(f"Account ID: {payload['accountId'] or 'unknown'}")
+        print(f"[{provider}] Logged in as {payload['email'] or 'unknown'}")
+        if payload["planType"]:
+            print(f"Plan: {payload['planType']}")
+        if payload["accountId"]:
+            print(f"Account ID: {payload['accountId']}")
     else:
-        print("Not authenticated.")
+        print(f"[{provider}] Not authenticated.")
 
 
 def _run_doctor(*, as_json: bool) -> None:
@@ -659,6 +675,7 @@ def _run_chat(
     as_json: bool,
     interactive: bool,
     stream: bool,
+    provider: str | None = None,
 ) -> None:
     runtime = create_runtime()
     if interactive:
@@ -671,15 +688,19 @@ def _run_chat(
 
     prompt = " ".join(prompt_parts).strip()
     if not prompt:
-        prompt = input("codex> ").strip()
+        prompt = input("chat> ").strip()
     if not prompt:
         raise BrokerError(400, "Prompt cannot be empty.")
 
-    payload = {
+    payload: dict[str, object] = {
         "model": model,
-        "reasoningEffort": normalize_reasoning_effort(reasoning),
         "messages": [{"role": "user", "content": prompt}],
     }
+    if provider:
+        payload["provider"] = provider
+    if reasoning:
+        payload["providerParams"] = {"reasoningEffort": normalize_reasoning_effort(reasoning)}
+
     response = _stream_chat_to_stdout(runtime, payload) if stream else runtime.chat_service.chat(payload)
     if as_json:
         _print_json(response)
@@ -742,19 +763,19 @@ def main() -> None:
             return
 
         if args.command == "login":
-            _run_login(as_json=args.json, open_browser=not args.no_browser)
+            _run_login(as_json=args.json, open_browser=not args.no_browser, provider=args.provider)
             return
 
         if args.command == "logout":
-            _run_logout(as_json=args.json)
+            _run_logout(as_json=args.json, provider=args.provider)
             return
 
         if args.command == "status":
-            _run_status(as_json=args.json)
+            _run_status(as_json=args.json, provider=args.provider)
             return
 
         if args.command == "whoami":
-            _run_whoami(as_json=args.json)
+            _run_whoami(as_json=args.json, provider=args.provider)
             return
 
         if args.command == "doctor":
@@ -777,6 +798,7 @@ def main() -> None:
                 as_json=args.json,
                 interactive=args.interactive,
                 stream=args.stream,
+                provider=args.provider,
             )
             return
 

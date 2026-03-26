@@ -52,9 +52,23 @@ class _FakeAuthService:
         )
 
 
+class _FakeEntry:
+    def __init__(self, auth_service) -> None:
+        self.auth_service = auth_service
+
+
+class _FakeRegistry:
+    def __init__(self, auth_service) -> None:
+        self._entry = _FakeEntry(auth_service)
+
+    def get(self, provider_id: str) -> _FakeEntry:
+        return self._entry
+
+
 class _FakeRuntime:
     def __init__(self) -> None:
         self.auth_service = _FakeAuthService()
+        self.registry = _FakeRegistry(self.auth_service)
 
 
 class LoginCliTests(unittest.TestCase):

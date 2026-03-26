@@ -4,6 +4,12 @@ from dataclasses import dataclass, field
 from os import getenv
 from pathlib import Path
 
+from dotenv import load_dotenv, find_dotenv
+
+# Load .env: first look relative to this source file (project root), then search from cwd upward
+_project_env = Path(__file__).parents[3] / ".env"
+load_dotenv(dotenv_path=_project_env if _project_env.exists() else find_dotenv(usecwd=True), override=False)
+
 from ..domain.codex import DEFAULT_CODEX_MODEL, DEFAULT_REASONING_EFFORT
 
 BRIDGE_SERVICE_NAME = "codex-bridge"

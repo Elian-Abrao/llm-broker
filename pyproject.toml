@@ -23,7 +23,7 @@ classifiers = [
   "Topic :: Internet :: WWW/HTTP",
   "Topic :: Software Development :: Libraries :: Python Modules"
 ]
-dependencies = []
+dependencies = ["python-dotenv>=1.0"]
 
 [project.optional-dependencies]
 secure = ["keyring>=25,<26"]
