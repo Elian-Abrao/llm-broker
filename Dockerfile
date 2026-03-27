@@ -7,6 +7,9 @@ ENV LLM_BROKER_PORT=47831
 ENV LLM_BROKER_AUTH_STORE_PATH=/data/auth/session.json
 ENV LLM_BROKER_DISABLE_KEYRING=1
 
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY pyproject.toml README.md LICENSE ./
